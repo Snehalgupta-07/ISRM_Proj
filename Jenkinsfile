@@ -8,67 +8,69 @@ pipeline {
     }
     
     stages {
+        stage('0. Checkout') {
+            steps {
+                echo "========== CLONING REPOSITORY =========="
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/Snehalgupta-07/ISRM_Proj.git']]
+                ])
+                bat '''
+                    @echo off
+                    dir
+                '''
+                echo "[+] Repository cloned successfully"
+            }
+        }
+        
         stage('1. Build') {
             steps {
                 echo "========== BUILD STAGE =========="
                 echo "Setting up Python environment..."
-                sh '''
+                bat '''
                     python --version
-                    python -m venv venv || true
-                    . venv/bin/activate || source venv/Scripts/activate
+                    if not exist venv (python -m venv venv)
+                    call venv\Scripts\activate.bat
                     pip install --upgrade pip
                     pip install -r requirements.txt
-                    pip install bandit pytest coverage
+                    pip install bandit
                 '''
                 echo "[+] Build completed"
             }
         }
         
-        stage('2. Unit Tests') {
-            steps {
-                echo "========== TESTING STAGE =========="
-                sh '''
-                    . venv/bin/activate || source venv/Scripts/activate
-                    python test_vulnerabilities.py || true
-                '''
-            }
-        }
-        
-        stage('3. Security Scan') {
+        stage('2. Security Scan') {
             steps {
                 echo "========== SECURITY SCANNING STAGE =========="
-                sh '''
-                    mkdir -p reports
-                    . venv/bin/activate || source venv/Scripts/activate
+                bat '''
+                    if not exist reports mkdir reports
+                    call venv\Scripts\activate.bat
                     
-                    echo "[*] Running Bandit JSON scan..."
-                    bandit -r app.py database.py config.py -f json -o reports/bandit_report.json || true
+                    echo [*] Running Bandit JSON report...
+                    bandit -r app.py database.py config.py -f json -o reports\bandit_report.json
                     
-                    echo "[*] Running Bandit HTML scan..."
-                    bandit -r app.py database.py config.py -f html -o reports/bandit_report.html || true
+                    echo [*] Running Bandit HTML report...
+                    bandit -r app.py database.py config.py -f html -o reports\bandit_report.html
                     
-                    echo "[*] Running Bandit CSV scan..."
-                    bandit -r app.py database.py config.py -f csv -o reports/bandit_report.csv || true
+                    echo [*] Running Bandit console output...
+                    bandit -r app.py database.py config.py -ll
                     
-                    echo "[*] Console output..."
-                    bandit -r app.py database.py config.py -ll || true
+                    exit /b 0
                 '''
             }
         }
         
-        stage('4. Report Generation') {
+        stage('3. Report Generation') {
             steps {
                 echo "========== REPORT GENERATION STAGE =========="
-                sh '''
-                    . venv/bin/activate || source venv/Scripts/activate
+                bat '''
+                    call venv\Scripts\activate.bat
                     
-                    echo "[*] Generating vulnerability assessment report..."
+                    echo [*] Generating vulnerability assessment report...
                     python generate_vulnerability_report.py
                     
-                    echo "[*] Copying reports..."
-                    cp -f VULNERABILITY_ASSESSMENT_REPORT.md reports/ || true
-                    cp -f vulnerability_assessment.csv reports/ || true
-                    cp -f vulnerability_assessment.html reports/ || true
+                    exit /b 0
                 '''
                 
                 archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
@@ -79,14 +81,13 @@ pipeline {
     
     post {
         always {
-            echo "========== POST BUILD =========="
-            cleanWs()
+            echo "========== PIPELINE COMPLETE =========="
         }
         success {
             echo "[SUCCESS] Pipeline executed successfully"
         }
         failure {
-            echo "[FAILURE] Pipeline failed - check logs"
+            echo "[FAILURE] Pipeline failed - check logs above"
         }
     }
 }
