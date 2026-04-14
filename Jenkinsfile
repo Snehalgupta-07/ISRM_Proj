@@ -2,9 +2,13 @@ pipeline {
     agent any
     
     environment {
-        PYTHON_ENV = 'venv'
+        PYTHON_PATH = "C:\\Users\\Snehal\\AppData\\Local\\Programs\\Python\\Python39\\python.exe"
         PROJECT_NAME = 'ISRM_Vulnerable_App'
         REPORT_DIR = 'reports'
+    }
+    
+    triggers {
+        githubPush()
     }
     
     stages {
@@ -12,17 +16,14 @@ pipeline {
         stage('0. Checkout') {
             steps {
                 echo "========== CLONING REPOSITORY =========="
+                
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: '*/main']],
                     userRemoteConfigs: [[url: 'https://github.com/Snehalgupta-07/ISRM_Proj.git']]
                 ])
                 
-                bat '''
-                    @echo off
-                    dir
-                '''
-                
+                bat 'dir'
                 echo "[+] Repository cloned successfully"
             }
         }
@@ -30,21 +31,20 @@ pipeline {
         stage('1. Build') {
             steps {
                 echo "========== BUILD STAGE =========="
-                echo "Setting up Python environment..."
                 
-                bat '''
-                    python --version
+                bat """
+                    ${PYTHON_PATH} --version
                     
                     if not exist venv (
-                        python -m venv venv
+                        ${PYTHON_PATH} -m venv venv
                     )
                     
                     call venv\\Scripts\\activate.bat
                     
-                    REM Avoid permission issues
-                    pip install -r requirements.txt
-                    pip install bandit
-                '''
+                    venv\\Scripts\\pip install --upgrade pip
+                    venv\\Scripts\\pip install -r requirements.txt
+                    venv\\Scripts\\pip install bandit
+                """
                 
                 echo "[+] Build completed"
             }
@@ -52,46 +52,36 @@ pipeline {
         
         stage('2. Security Scan') {
             steps {
-                echo "========== SECURITY SCANNING STAGE =========="
+                echo "========== SECURITY SCANNING =========="
                 
-                // Prevent pipeline failure but mark stage unstable if needed
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                     
-                    bat '''
+                    bat """
                         if not exist reports mkdir reports
                         
-                        REM Fix encoding issue
                         chcp 65001
                         
                         call venv\\Scripts\\activate.bat
                         
-                        echo [*] Running Bandit JSON report...
-                        bandit -r . -f json -o reports\\bandit_report.json
-                        
-                        echo [*] Running Bandit HTML report...
-                        bandit -r . -f html -o reports\\bandit_report.html
-                        
-                        echo [*] Running Bandit console output...
-                        bandit -r . -ll
-                    '''
+                        venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
+                        venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
+                        venv\\Scripts\\bandit -r . -ll
+                    """
                 }
             }
         }
         
         stage('3. Report Generation') {
             steps {
-                echo "========== REPORT GENERATION STAGE =========="
+                echo "========== REPORT GENERATION =========="
                 
-                bat '''
+                bat """
                     call venv\\Scripts\\activate.bat
-                    
-                    echo [*] Generating vulnerability assessment report...
-                    python generate_vulnerability_report.py
-                '''
+                    ${PYTHON_PATH} generate_vulnerability_report.py
+                """
                 
                 archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
-                
-                echo "[+] Reports generated and archived"
+                echo "[+] Reports archived"
             }
         }
     }
@@ -101,10 +91,10 @@ pipeline {
             echo "========== PIPELINE COMPLETE =========="
         }
         success {
-            echo "[SUCCESS] Pipeline executed successfully (vulnerabilities may exist)"
+            echo "[SUCCESS] Pipeline executed successfully"
         }
         failure {
-            echo "[FAILURE] Pipeline failed - check logs above"
+            echo "[FAILURE] Pipeline failed"
         }
     }
 }
