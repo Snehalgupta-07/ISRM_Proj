@@ -543,3 +543,6 @@ if __name__ == '__main__':
     # VULNERABILITY: Running in debug mode (not for production)
     # Debug mode exposes detailed error pages and allows code execution
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+    #testing
+    
