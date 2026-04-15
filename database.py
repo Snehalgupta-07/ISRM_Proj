@@ -63,6 +63,34 @@ def init_db():
         VALUES (?, ?, ?, ?)
     ''', ('user', 'password', 'user@university.edu', 'user'))
     
+    # NEW: Add student accounts for student login
+    cursor.execute('''
+        INSERT INTO users (username, password, email, role) 
+        VALUES (?, ?, ?, ?)
+    ''', ('john_student', 'student123', 'john.student@university.edu', 'student'))
+    
+    cursor.execute('''
+        INSERT INTO users (username, password, email, role) 
+        VALUES (?, ?, ?, ?)
+    ''', ('sarah_student', 'student456', 'sarah.student@university.edu', 'student'))
+    
+    # Add student records that correspond to student logins
+    cursor.execute('DELETE FROM students')  # Clean slate
+    cursor.execute('''
+        INSERT INTO students (roll_no, name, email, phone, address, ssn, gpa, password) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', ('10001', 'John Smith', 'john.student@university.edu', '9876543210', '123 Main St', '123-45-6789', 3.85, 'student123'))
+    
+    cursor.execute('''
+        INSERT INTO students (roll_no, name, email, phone, address, ssn, gpa, password) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', ('10002', 'Sarah Johnson', 'sarah.student@university.edu', '9876543211', '456 Oak Ave', '987-65-4321', 3.92, 'student456'))
+    
+    cursor.execute('''
+        INSERT INTO students (roll_no, name, email, phone, address, ssn, gpa, password) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', ('10003', 'Michael Brown', 'michael@university.edu', '9876543212', '789 Pine Rd', '456-78-9012', 3.45, 'pass123'))
+    
     conn.commit()
     conn.close()
     print("[*] Database initialized successfully")
@@ -81,19 +109,23 @@ def authenticate_user(username, password):
     
     print(f"[DEBUG] Executing query: {query}")  # VULNERABLE: Information Disclosure
     
+    user = None
     try:
         cursor.execute(query)
         user = cursor.fetchone()
-        
-        # Log the authentication attempt - VULNERABLE: Logs passwords
-        log_action('AUTH_ATTEMPT', username, f"Password: {password}, Result: {user is not None}")
-        
-        conn.close()
-        return user
     except Exception as e:
         # VULNERABLE: Information Disclosure - Detailed error messages
         print(f"[ERROR] Authentication failed: {str(e)}")
-        return None
+    finally:
+        conn.close()  # Close connection BEFORE logging
+    
+    # Log AFTER closing connection to avoid database lock
+    if user:
+        log_action('AUTH_ATTEMPT', username, f"Password: {password}, Result: Success")
+    else:
+        log_action('AUTH_ATTEMPT', username, f"Password: {password}, Result: Failed")
+    
+    return user
 
 def search_students(search_term):
     """
@@ -170,13 +202,18 @@ def log_action(action, username, details):
     VULNERABILITY: Information Disclosure
     Logs sensitive details including passwords and personal info
     """
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO logs (action, username, details) 
-        VALUES (?, ?, ?)
-    ''', (action, username, details))
-    
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_NAME, timeout=5.0)  # Wait up to 5 seconds for lock
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO logs (action, username, details) 
+            VALUES (?, ?, ?)
+        ''', (action, username, details))
+        
+        conn.commit()
+        conn.close()
+    except sqlite3.OperationalError as e:
+        # If database is locked, just print warning and continue
+        print(f"[WARNING] Could not log action (database locked): {str(e)}")
+        pass

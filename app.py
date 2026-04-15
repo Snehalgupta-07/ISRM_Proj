@@ -64,6 +64,7 @@ def login():
             # VULNERABILITY: No session timeout enforcement
             session['user_id'] = user[0]
             session['username'] = user[1]
+            session['email'] = user[3]
             session['role'] = user[4]
             session.permanent = True
             
@@ -84,30 +85,79 @@ def dashboard():
     """
     VULNERABILITY: No proper access control
     Anyone with a session can access
+    Shows role-based dashboard
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    return f'''
-    <h1>Dashboard</h1>
-    <p>Welcome, {session.get('username')}</p>
-    <ul>
-        <li><a href="/students">View Students</a></li>
-        <li><a href="/add_student">Add Student</a></li>
-        <li><a href="/search">Search Students</a></li>
-        <li><a href="/upload">Upload File</a></li>
-        <li><a href="/logout">Logout</a></li>
-    </ul>
-    '''
+    role = session.get('role', 'user')
+    username = session.get('username')
+    
+    if role == 'admin':
+        # Admin dashboard - full access to all functions
+        return f'''
+        <h1>Admin Dashboard</h1>
+        <p>Welcome, <b>Admin: {username}</b></p>
+        <h3>Student Management</h3>
+        <ul>
+            <li><a href="/students">View All Students</a></li>
+            <li><a href="/add_student">Add New Student</a></li>
+            <li><a href="/search">Search Students</a></li>
+        </ul>
+        <h3>File Management</h3>
+        <ul>
+            <li><a href="/upload">Upload File</a></li>
+        </ul>
+        <h3>System</h3>
+        <ul>
+            <li><a href="/view_logs">View System Logs</a></li>
+            <li><a href="/logout">Logout</a></li>
+        </ul>
+        '''
+    
+    elif role == 'student':
+        # Student dashboard - limited access
+        return f'''
+        <h1>Student Dashboard</h1>
+        <p>Welcome, <b>Student: {username}</b></p>
+        <h3>My Academic Information</h3>
+        <ul>
+            <li><a href="/student/grades">View My Grades & GPA</a></li>
+            <li><a href="/student/profile">View My Profile</a></li>
+        </ul>
+        <h3>Account</h3>
+        <ul>
+            <li><a href="/logout">Logout</a></li>
+        </ul>
+        '''
+    
+    else:
+        # Regular user dashboard
+        return f'''
+        <h1>User Dashboard</h1>
+        <p>Welcome, <b>User: {username}</b></p>
+        <ul>
+            <li><a href="/students">View Students</a></li>
+            <li><a href="/add_student">Add Student</a></li>
+            <li><a href="/search">Search Students</a></li>
+            <li><a href="/upload">Upload File</a></li>
+            <li><a href="/logout">Logout</a></li>
+        </ul>
+        '''
 
 @app.route('/students')
 def view_students():
     """
     VULNERABILITY: No access control - any authenticated user can see all data
     Exposes sensitive information (SSN, passwords)
+    FIXED: Restrict to admin and user roles only (not students)
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role == 'student':
+        return "Access Denied: Students cannot view all student records", 403
     
     conn = database.sqlite3.connect(database.DB_NAME)
     cursor = conn.cursor()
@@ -128,9 +178,14 @@ def view_student(student_id):
     """
     VULNERABILITY: SQL Injection in student ID parameter
     Sensitive Data Exposure of SSN and password
+    FIXED: Prevent students from viewing other student records
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role == 'student':
+        return "Access Denied: Students cannot view other student records", 403
     
     # VULNERABLE: Direct parameter use - SQL Injection
     student = database.get_student_details(student_id)
@@ -152,14 +207,117 @@ def view_student(student_id):
     <br><a href="/students">Back</a>
     '''
 
+@app.route('/student/profile')
+def student_profile():
+    """
+    Student can view only their own profile
+    Restricts access based on email matching between user and student record
+    """
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role != 'student':
+        return "Access Denied: Only students can view their profile", 403
+    
+    user_email = session.get('email')  # Requires email to be stored in session
+    
+    conn = database.sqlite3.connect(database.DB_NAME)
+    cursor = conn.cursor()
+    # Use parameterized query here (matching email)
+    cursor.execute('SELECT id, roll_no, name, email, phone, address, gpa FROM students WHERE email = ?', (user_email,))
+    student = cursor.fetchone()
+    conn.close()
+    
+    if not student:
+        return "Your student record not found", 404
+    
+    return f'''
+    <h1>My Profile</h1>
+    <p><b>Roll Number:</b> {student[1]}</p>
+    <p><b>Name:</b> {student[2]}</p>
+    <p><b>Email:</b> {student[3]}</p>
+    <p><b>Phone:</b> {student[4]}</p>
+    <p><b>Address:</b> {student[5]}</p>
+    <p><b>CGPA:</b> {student[6]}</p>
+    <br><a href="/dashboard">Back to Dashboard</a>
+    '''
+
+@app.route('/student/grades')
+def student_grades():
+    """
+    Student can view only their own grades and GPA
+    Restricts access to student role only
+    """
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role != 'student':
+        return "Access Denied: Only students can view their grades", 403
+    
+    user_email = session.get('email')
+    
+    conn = database.sqlite3.connect(database.DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT roll_no, name, gpa FROM students WHERE email = ?', (user_email,))
+    student = cursor.fetchone()
+    conn.close()
+    
+    if not student:
+        return "Your student record not found", 404
+    
+    # VULNERABILITY: Password shown here too (information disclosure)
+    return f'''
+    <h1>My Academic Performance</h1>
+    <h2>Student Information</h2>
+    <p><b>Roll Number:</b> {student[0]}</p>
+    <p><b>Name:</b> {student[1]}</p>
+    
+    <h2>Academic Performance</h2>
+    <p><b>CGPA (Cumulative Grade Point Average):</b> {student[2]}</p>
+    <p><b>Status:</b> {'Good Standing' if float(student[2]) >= 3.0 else 'Probation'}</p>
+    
+    <h3>Performance Analysis</h3>
+    <table border="1">
+        <tr>
+            <th>GPA Range</th>
+            <th>Performance</th>
+        </tr>
+        <tr>
+            <td>3.8 - 4.0</td>
+            <td>Excellent</td>
+        </tr>
+        <tr>
+            <td>3.5 - 3.7</td>
+            <td>Very Good</td>
+        </tr>
+        <tr>
+            <td>3.0 - 3.4</td>
+            <td>Good</td>
+        </tr>
+        <tr>
+            <td>< 3.0</td>
+            <td>Needs Improvement</td>
+        </tr>
+    </table>
+    
+    <br><a href="/dashboard">Back to Dashboard</a>
+    '''
+
 @app.route('/add_student', methods=['GET', 'POST'])
 def add_student():
     """
     VULNERABILITY: No input validation, SQL Injection
     No privilege check (any user can add students)
+    FIXED: Now restricts to admin only
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role != 'admin':
+        return "Access Denied: Only admins can add students", 403
     
     if request.method == 'POST':
         # No input validation or sanitization
@@ -196,10 +354,14 @@ def add_student():
 def search_students():
     """
     VULNERABILITY: SQL Injection in search
-    No access control
+    No access control - FIXED to prevent students
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role == 'student':
+        return "Access Denied: Students cannot search student records", 403
     
     results = []
     if request.method == 'POST':
@@ -237,9 +399,14 @@ def upload_file():
     2. Path Traversal vulnerability
     3. No file size limit enforcement
     4. Predictable filenames
+    FIXED: Prevent students from uploading
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role == 'student':
+        return "Access Denied: Only admin and users can upload files", 403
     
     if request.method == 'POST':
         if 'file' not in request.files:
@@ -295,14 +462,48 @@ def download_file(filename):
     else:
         return "File not found", 404
 
+@app.route('/file/<path:filepath>')
+def access_file(filepath):
+    """
+    VULNERABILITY: Unrestricted File Path Access
+    CWE-434: Unrestricted Upload of File with Dangerous Type
+    CWE-22: Path Traversal vulnerability
+    
+    Allows direct access to ANY file on the system using path parameter
+    No validation - attackers can use this to:
+    - Download config.py (steal SECRET_KEY)
+    - Download vulnerable_app.db (steal all user/student data)
+    - Download app.py (get source code)
+    - Download database.py (leak database queries)
+    """
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    # CRITICAL VULNERABILITY: No path validation whatsoever
+    # Directly trusts user input for file access
+    try:
+        if os.path.exists(filepath) and os.path.isfile(filepath):
+            database.log_action('FILE_ACCESS', session.get('username'), f"Accessed file: {filepath}")
+            return send_file(filepath)
+        else:
+            return "File not found or not a file", 404
+    except Exception as e:
+        # VULNERABILITY: Information Disclosure - reveals errors
+        return f"Error accessing file: {str(e)}", 500
+
 @app.route('/logs')
 def view_logs():
     """
     VULNERABILITY: Information Disclosure + Sensitive Data Exposure
     No access control - any user can see logs with passwords
+    FIXED: Restrict to admin only
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
+    
+    role = session.get('role', 'user')
+    if role != 'admin':
+        return "Access Denied: Only admins can view logs", 403
     
     # VULNERABILITY: No role-based access control
     # Should be admin-only

