@@ -1,18 +1,33 @@
 # Main Flask Application - FIXED VERSION with Security Improvements
 from flask import Flask, render_template, request, redirect, session, url_for, send_file, flash
 from werkzeug.utils import secure_filename
-from flask_wtf.csrf import CSRFProtect
 import os
 import database
 from config import Config
 from datetime import datetime, timedelta
 import re
+import secrets
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# FIXED: CSRF Protection - All POST/PUT/DELETE requests require valid CSRF tokens
-csrf = CSRFProtect(app)
+# FIXED: CSRF Protection - Manual implementation to avoid dependency issues
+def generate_csrf_token():
+    """Generate a secure CSRF token"""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+def validate_csrf_token(token):
+    """Validate CSRF token from request"""
+    if '_csrf_token' not in session:
+        return False
+    return secrets.compare_digest(token, session['_csrf_token'])
+
+# Make csrf_token() available in all templates
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=generate_csrf_token)
 
 # Initialize database
 if not os.path.exists(database.DB_NAME):
@@ -67,6 +82,12 @@ def login():
     5. Password logging - No longer logs passwords
     """
     if request.method == 'POST':
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return render_template('login_new.html')
+        
         username = request.form.get('username', '').strip()  # FIXED: Input trimming
         password = request.form.get('password', '')
         
@@ -243,6 +264,12 @@ def add_student():
         return redirect(url_for('dashboard')), 403
     
     if request.method == 'POST':
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return render_template('add_student_new.html')
+        
         # FIXED: Input validation for all fields
         roll_no = request.form.get('roll_no', '').strip()
         name = request.form.get('name', '').strip()
@@ -299,6 +326,12 @@ def search_students():
     
     results = []
     if request.method == 'POST':
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return render_template('search_new.html', results=[])
+        
         search_term = request.form.get('search', '').strip()  # FIXED: Input trimming
         
         # FIXED: Input validation
@@ -330,6 +363,12 @@ def upload_file():
         return redirect(url_for('dashboard')), 403
     
     if request.method == 'POST':
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return redirect(url_for('upload_file'))
+        
         if 'file' not in request.files:
             flash('No file selected', 'danger')
             return redirect(url_for('upload_file'))
@@ -468,10 +507,17 @@ def view_logs():
     
     return render_template('logs_new.html', logs=logs)
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 def logout():
-    """VULNERABILITY: No CSRF token on logout"""
+    """FIXED: CSRF token protection on logout"""
+    # FIXED: CSRF Token Validation
+    csrf_token = request.form.get('csrf_token', '')
+    if not validate_csrf_token(csrf_token):
+        flash('Security validation failed.', 'danger')
+        return redirect(url_for('dashboard'))
+    
     session.clear()
+    flash('You have been logged out successfully.', 'info')
     return redirect(url_for('login'))
 
 @app.errorhandler(404)
@@ -493,5 +539,5 @@ if __name__ == '__main__':
     print(f"[*] Starting Flask app...")
     print(f"[*] Debug Mode: {debug_mode}")
     print(f"[*] Host: {host}:5000")
-    app.run(debug=debug_mode, host=host, port=5000, use_reloader=False))
+    app.run(debug=debug_mode, host=host, port=5000, use_reloader=False)
 
