@@ -15,16 +15,14 @@ pipeline {
         
         stage('0. Checkout') {
             steps {
-                echo "========== CLONING REPOSITORY =========="
+                echo "========== CHECKOUT STAGE =========="
                 
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    userRemoteConfigs: [[url: 'https://github.com/Snehalgupta-07/ISRM_Proj.git']]
-                ])
+                // 🔥 FIX: Use branch-aware checkout
+                cleanWs()
+                checkout scm
                 
                 bat 'dir'
-                echo "[+] Repository cloned successfully"
+                echo "[+] Correct branch checked out"
             }
         }
         
@@ -62,6 +60,8 @@ pipeline {
                         chcp 65001
                         
                         call venv\\Scripts\\activate.bat
+                        
+                        echo [*] Running Bandit scan on CURRENT BRANCH...
                         
                         venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
                         venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
