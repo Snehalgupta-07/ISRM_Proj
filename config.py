@@ -1,22 +1,38 @@
-# Configuration File - Intentionally Vulnerable
+# Configuration File - FIXED VERSION with Security Improvements
 import os
 
 class Config:
-    # SQL INJECTION VULNERABILITY: Using raw SQL queries
-    # Path Traversal & Insecure Upload: No restrictions on upload paths
+    # FIXED: File Upload Security
+    # Only allow safe file types, removed executables (exe, sh, bat)
+    # VULNERABLE (COMMENTED): Allows executable files
+    # ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'docx', 'exe', 'sh', 'bat'}
+    
     UPLOAD_FOLDER = 'uploads'
-    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'docx', 'exe', 'sh', 'bat'}  # VULNERABLE: Allows executable files
-    MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB - No proper file size validation
+    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'docx'}  # FIXED: Only safe extensions
+    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # FIXED: Reduced to 5MB with proper enforcement
     
+    # FIXED: Secret Key Security
+    # VULNERABLE (COMMENTED): Hardcoded weak secret - Use environment variable instead
+    # SECRET_KEY = 'super_secret_key_12345'
     
-    # Sensitive Data Exposure: Weak secret key
-    SECRET_KEY = 'super_secret_key_12345'  # VULNERABLE: Hardcoded weak secret
+    # FIXED: Use environment variable for secret key, fallback to strong default for demo
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-only-fixed-key-change-in-production-xyz123!@#')
     
     # Database Configuration
     SQLALCHEMY_DATABASE_URI = 'sqlite:///vulnerable_app.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
+    # FIXED: Session Configuration with Security
+    # VULNERABLE (COMMENTED): Using Flask defaults without security flags
+    # PERMANENT_SESSION_LIFETIME = 86400  # 24 hours in seconds
     
-    # Session Configuration - VULNERABLE
-    # Using Flask built-in sessions instead of Flask-Session
-    PERMANENT_SESSION_LIFETIME = 86400  # 24 hours in seconds
+    PERMANENT_SESSION_LIFETIME = 1800  # FIXED: Reduced to 30 minutes for security
+    SESSION_COOKIE_SECURE = True  # FIXED: Only send over HTTPS
+    SESSION_COOKIE_HTTPONLY = True  # FIXED: Prevent JavaScript access to cookies
+    SESSION_COOKIE_SAMESITE = 'Strict'  # FIXED: CSRF protection
+    
+    # FIXED: Flask Debug and Host Binding
+    # VULNERABLE (COMMENTED): debug=True, host='0.0.0.0'
+    DEBUG = os.environ.get('FLASK_DEBUG', 'False') == 'True'  # FIXED: Disabled by default
+    FLASK_ENV = os.environ.get('FLASK_ENV', 'production')  # FIXED: Default to production
+    HOST = os.environ.get('FLASK_HOST', '127.0.0.1')  # FIXED: Localhost by default, not 0.0.0.0

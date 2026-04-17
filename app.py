@@ -1,10 +1,11 @@
-# Main Flask Application - Vulnerable Student Management System
-from flask import Flask, render_template, request, redirect, session, url_for, send_file
+# Main Flask Application - FIXED VERSION with Security Improvements
+from flask import Flask, render_template, request, redirect, session, url_for, send_file, flash
 from werkzeug.utils import secure_filename
 import os
 import database
 from config import Config
 from datetime import datetime, timedelta
+import re
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -16,19 +17,32 @@ if not os.path.exists(database.DB_NAME):
 # Ensure upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# VULNERABILITY: No rate limiting on login attempts (Brute Force & Credential Stuffing)
+# FIXED: Rate limiting implementation to prevent brute force attacks
+# VULNERABLE (COMMENTED): No rate limiting - allows unlimited brute force attempts
 LOGIN_ATTEMPTS = {}
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION = 300  # 5 minutes in seconds
 
 def record_login_attempt(username):
-    """No rate limiting implemented"""
-    if username in LOGIN_ATTEMPTS:
-        LOGIN_ATTEMPTS[username] += 1
-    else:
-        LOGIN_ATTEMPTS[username] = 1
+    """FIXED: Track login attempts with timestamp for rate limiting"""
+    now = datetime.now()
+    if username not in LOGIN_ATTEMPTS:
+        LOGIN_ATTEMPTS[username] = []
+    # Remove old attempts outside the lockout window
+    LOGIN_ATTEMPTS[username] = [t for t in LOGIN_ATTEMPTS[username] if (now - t).total_seconds() < LOCKOUT_DURATION]
+    LOGIN_ATTEMPTS[username].append(now)
 
 def check_rate_limit(username):
-    """Not enforced - allows unlimited brute force attempts"""
-    return True  # Always returns True - NO PROTECTION
+    """FIXED: Enforce rate limiting - returns False if too many attempts"""
+    now = datetime.now()
+    if username not in LOGIN_ATTEMPTS:
+        return True  # First attempt - allowed
+    # Remove old attempts
+    LOGIN_ATTEMPTS[username] = [t for t in LOGIN_ATTEMPTS[username] if (now - t).total_seconds() < LOCKOUT_DURATION]
+    # Check if exceeded max attempts
+    if len(LOGIN_ATTEMPTS[username]) >= MAX_LOGIN_ATTEMPTS:
+        return False  # Too many attempts - locked out
+    return True  # Still within limits
 
 
 @app.route('/')
@@ -41,42 +55,50 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """
-    VULNERABILITY: Multiple Security Flaws
-    1. SQL Injection in authentication
-    2. NO rate limiting (Brute Force attack)
-    3. Weak password handling
-    4. No CSRF protection
-    5. Sensitive error messages
+    FIXED: Multiple Security Improvements
+    1. SQL Injection - Now uses parameterized queries (fixed in database.py)
+    2. Rate limiting - Enforces max login attempts
+    3. Sensitive error messages - Removed verbose messages
+    4. Session timeout - Configured in config.py
+    5. Password logging - No longer logs passwords
     """
     if request.method == 'POST':
-        username = request.form.get('username', '')
+        username = request.form.get('username', '').strip()  # FIXED: Input trimming
         password = request.form.get('password', '')
         
-        # No input validation
+        # FIXED: Input validation
+        if not username or not password:
+            flash('Username and password are required', 'danger')
+            return render_template('login_new.html')
         
-        # No rate limiting - allows unlimited login attempts
+        # FIXED: Rate limiting enforcement
+        if not check_rate_limit(username):
+            flash('Too many login attempts. Please try again later.', 'danger')
+            return render_template('login_new.html')
+        
         record_login_attempt(username)
         
-        # SQL Injection vulnerability here
+        # FIXED: Uses parameterized queries (secure from SQL injection)
         user = database.authenticate_user(username, password)
         
         if user:
-            # VULNERABILITY: No session timeout enforcement
+            # FIXED: Secure session configuration applied
             session['user_id'] = user[0]
             session['username'] = user[1]
             session['email'] = user[3]
             session['role'] = user[4]
             session.permanent = True
             
-            # VULNERABILITY: Information Disclosure - Verbose logging
-            database.log_action('LOGIN_SUCCESS', username, f"User logged in successfully")
+            # FIXED: Sanitized logging - no password
+            database.log_action('LOGIN_SUCCESS', username, 'User logged in successfully')
             
             return redirect(url_for('dashboard'))
         else:
-            # VULNERABILITY: Information Disclosure
-            error = "Invalid username or password"
-            database.log_action('LOGIN_FAILED', username, f"Failed login attempt with password: {password}")
-            return render_template('login_new.html', error=error)
+            # FIXED: Generic error message - no information disclosure
+            flash('Invalid username or password', 'danger')
+            # FIXED: No longer logs password attempts
+            database.log_action('LOGIN_FAILED', username, 'Failed login attempt')
+            return render_template('login_new.html')
     
     return render_template('login_new.html')
 
@@ -117,22 +139,33 @@ def students():
 @app.route('/student/<student_id>')
 def view_student(student_id):
     """
-    VULNERABILITY: SQL Injection in student ID parameter
-    Sensitive Data Exposure of SSN and password
-    FIXED: Prevent students from viewing other student records
+    FIXED: Multiple Security Issues
+    1. SQL Injection - Uses parameterized queries
+    2. Sensitive Data Exposure - No longer exposes SSN/password
+    3. Access Control - Prevents students from viewing others' records
+    4. Input Validation - Validates student_id format
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     role = session.get('role', 'user')
     if role == 'student':
-        return "Access Denied: Students cannot view other student records", 403
+        flash('Access Denied: Students cannot view other student records', 'danger')
+        return redirect(url_for('dashboard')), 403
     
-    # VULNERABLE: Direct parameter use - SQL Injection
+    # FIXED: Input validation - ensure ID is numeric
+    try:
+        student_id = int(student_id)
+    except (ValueError, TypeError):
+        flash('Invalid student ID', 'danger')
+        return redirect(url_for('students')), 400
+    
+    # FIXED: Uses parameterized queries (secure from SQL injection)
     student = database.get_student_details(student_id)
     
     if not student:
-        return "Student not found", 404
+        flash('Student not found', 'danger')
+        return redirect(url_for('students')), 404
     
     return render_template('student_view.html', student=student)
 
@@ -192,35 +225,55 @@ def student_grades():
 @app.route('/add_student', methods=['GET', 'POST'])
 def add_student():
     """
-    VULNERABILITY: No input validation, SQL Injection
-    No privilege check (any user can add students)
-    FIXED: Now restricts to admin only
+    FIXED: Multiple Security Issues
+    1. SQL Injection - Uses parameterized queries (fixed in database.py)
+    2. Input validation - All fields validated before submission
+    3. Access control - Admin only
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     role = session.get('role', 'user')
     if role != 'admin':
-        return "Access Denied: Only admins can add students", 403
+        flash('Access Denied: Only admins can add students', 'danger')
+        return redirect(url_for('dashboard')), 403
     
     if request.method == 'POST':
-        # No input validation or sanitization
-        roll_no = request.form.get('roll_no', '')
-        name = request.form.get('name', '')
-        email = request.form.get('email', '')
-        phone = request.form.get('phone', '')
-        address = request.form.get('address', '')
-        ssn = request.form.get('ssn', '')
+        # FIXED: Input validation for all fields
+        roll_no = request.form.get('roll_no', '').strip()
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
+        phone = request.form.get('phone', '').strip()
+        address = request.form.get('address', '').strip()
+        ssn = request.form.get('ssn', '').strip()
         gpa = request.form.get('gpa', '0')
         
-        # VULNERABLE: No validation, SQL injection possible
+        # FIXED: Comprehensive input validation
+        errors = []
+        if not roll_no:
+            errors.append('Roll number is required')
+        if not name or len(name) < 2:
+            errors.append('Valid name is required')
+        if not email or '@' not in email:
+            errors.append('Valid email is required')
+        if not phone or not phone.isdigit() or len(phone) != 10:
+            errors.append('Valid 10-digit phone number is required')
+        if not address or len(address) < 5:
+            errors.append('Valid address is required')
+        if not ssn or not re.match(r'^\d{3}-\d{2}-\d{4}$', ssn):
+            errors.append('Valid SSN format (XXX-XX-XXXX) is required')
+        
+        if errors:
+            for error in errors:
+                flash(error, 'danger')
+            return render_template('add_student_new.html')
+        
+        # FIXED: Uses parameterized queries (secure from SQL injection)
         if database.add_student(roll_no, name, email, phone, address, ssn, gpa):
-            import flask
-            flask.flash('Student added successfully!', 'success')
+            flash('Student added successfully!', 'success')
             return redirect(url_for('dashboard'))
         else:
-            import flask
-            flask.flash('Error adding student', 'danger')
+            flash('Error adding student', 'danger')
             return redirect(url_for('add_student'))
     
     return render_template('add_student_new.html')
@@ -228,126 +281,191 @@ def add_student():
 @app.route('/search', methods=['GET', 'POST'])
 def search_students():
     """
-    VULNERABILITY: SQL Injection in search
-    No access control - FIXED to prevent students
+    FIXED: SQL Injection vulnerability
+    Now uses parameterized queries
+    Access control prevents students from searching
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     role = session.get('role', 'user')
     if role == 'student':
-        return "Access Denied: Students cannot search student records", 403
+        flash('Access Denied: Students cannot search student records', 'danger')
+        return redirect(url_for('dashboard')), 403
     
     results = []
     if request.method == 'POST':
-        search_term = request.form.get('search', '')
+        search_term = request.form.get('search', '').strip()  # FIXED: Input trimming
         
-        # VULNERABLE: SQL Injection
-        results = database.search_students(search_term)
-        
-        # VULNERABILITY: Information Disclosure - Shows query
-        print(f"[*] Search performed for: {search_term}")
+        # FIXED: Input validation
+        if not search_term or len(search_term) < 1:
+            flash('Search term cannot be empty', 'warning')
+        elif len(search_term) > 100:
+            flash('Search term is too long', 'danger')
+        else:
+            # FIXED: Uses parameterized queries (secure from SQL injection)
+            results = database.search_students(search_term)
     
     return render_template('search_new.html', results=results)
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
     """
-    VULNERABILITY: Multiple File Upload Issues
-    1. No file type validation (allows executables)
-    2. Path Traversal vulnerability
-    3. No file size limit enforcement
-    4. Predictable filenames
-    FIXED: Prevent students from uploading
+    FIXED: Multiple File Upload Issues
+    1. Proper file type validation - only safe extensions
+    2. Path traversal prevention - using secure_filename
+    3. File size limit enforcement
+    4. Proper access control (prevents students)
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
     role = session.get('role', 'user')
     if role == 'student':
-        return "Access Denied: Only admin and users can upload files", 403
+        flash('Access Denied: Only admin and users can upload files', 'danger')
+        return redirect(url_for('dashboard')), 403
     
     if request.method == 'POST':
         if 'file' not in request.files:
-            import flask
-            flask.flash('No file selected', 'danger')
+            flash('No file selected', 'danger')
             return redirect(url_for('upload_file'))
         
         file = request.files['file']
         
         if file.filename == '':
-            import flask
-            flask.flash('No file selected', 'danger')
+            flash('No file selected', 'danger')
             return redirect(url_for('upload_file'))
         
-        # VULNERABILITY: No proper file validation
-        # Allow dangerous file extensions
-        filename = file.filename  # VULNERABLE: No sanitization
+        # VULNERABLE (COMMENTED): No proper file validation
+        # filename = file.filename  # No sanitization
+        # filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)  # Path Traversal
+        # file.save(filepath)  # Allows any file type including .exe, .sh, .bat
         
-
-        # VULNERABILITY: Path Traversal - No path validation
-        # Attacker can use "../" to upload outside intended directory
+        # FIXED: Secure filename handling
+        filename = secure_filename(file.filename)
+        
+        # FIXED: Validate file extension
+        if not filename or '.' not in filename:
+            flash('Invalid filename', 'danger')
+            return redirect(url_for('upload_file'))
+        
+        file_ext = filename.rsplit('.', 1)[1].lower()
+        if file_ext not in app.config['ALLOWED_EXTENSIONS']:
+            flash(f'File type .{file_ext} not allowed. Allowed types: {", ".join(app.config["ALLOWED_EXTENSIONS"])}', 'danger')
+            return redirect(url_for('upload_file'))
+        
+        # FIXED: Validate file size (max 5MB)
+        file.seek(0, os.SEEK_END)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Seek back to start
+        
+        max_size = app.config['MAX_CONTENT_LENGTH']
+        if file_size > max_size:
+            flash(f'File size exceeds maximum allowed size of {max_size / (1024*1024):.1f}MB', 'danger')
+            return redirect(url_for('upload_file'))
+        
+        # FIXED: Safe path construction
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        filepath = os.path.abspath(filepath)  # Resolve to absolute path
         
-        # VULNERABILITY: No file type check
-        # Allows executable files (.exe, .sh, .bat)
-        file.save(filepath)
+        # FIXED: Ensure filepath is within UPLOAD_FOLDER
+        upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
+        if not filepath.startswith(upload_dir):
+            flash('Invalid file path', 'danger')
+            return redirect(url_for('upload_file'))
         
-        # VULNERABILITY: Information Disclosure - Log file path
-        database.log_action('FILE_UPLOAD', session.get('username'), f"Uploaded file: {filepath}")
-        
-        import flask
-        flask.flash(f'File "{filename}" uploaded successfully!', 'success')
-        return redirect(url_for('dashboard'))
+        try:
+            file.save(filepath)
+            # FIXED: Sanitized logging
+            database.log_action('FILE_UPLOAD', session.get('username'), f'Uploaded file: {filename}')
+            flash(f'File "{filename}" uploaded successfully!', 'success')
+            return redirect(url_for('dashboard'))
+        except Exception as e:
+            flash('Error uploading file', 'danger')
+            return redirect(url_for('upload_file'))
     
     return render_template('upload_new.html')
 
 @app.route('/download/<filename>')
 def download_file(filename):
     """
-    VULNERABILITY: Path Traversal
-    No validation of filename parameter
-    Allows download of any file using ../ notation
+    FIXED: Path Traversal vulnerability
+    Validates filename before accessing filesystem
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # VULNERABLE: Path Traversal - No sanitization
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    # VULNERABLE (COMMENTED): Path Traversal - No sanitization
+    # filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    # if os.path.exists(filepath):
+    #     return send_file(filepath)
     
-    if os.path.exists(filepath):
+    # FIXED: Secure filename and path validation
+    filename = secure_filename(filename)
+    if not filename:
+        flash('Invalid filename', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    filepath = os.path.abspath(filepath)  # Resolve to absolute path
+    
+    # FIXED: Ensure filepath is within UPLOAD_FOLDER directory
+    upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
+    if not filepath.startswith(upload_dir) or not os.path.isfile(filepath):
+        flash('File not found or access denied', 'danger')
+        return redirect(url_for('dashboard')), 404
+    
+    try:
+        database.log_action('FILE_DOWNLOAD', session.get('username'), f'Downloaded file: {filename}')
         return send_file(filepath)
-    else:
-        return "File not found", 404
+    except Exception as e:
+        # FIXED: Generic error message
+        flash('Error downloading file', 'danger')
+        return redirect(url_for('dashboard')), 500
 
 @app.route('/file/<path:filepath>')
 def access_file(filepath):
     """
-    VULNERABILITY: Unrestricted File Path Access
-    CWE-434: Unrestricted Upload of File with Dangerous Type
-    CWE-22: Path Traversal vulnerability
-    
-    Allows direct access to ANY file on the system using path parameter
-    No validation - attackers can use this to:
-    - Download config.py (steal SECRET_KEY)
-    - Download vulnerable_app.db (steal all user/student data)
-    - Download app.py (get source code)
-    - Download database.py (leak database queries)
+    FIXED: Unrestricted File Path Access vulnerability
+    Now validates and restricts file access properly
+    Only allows access to files within permitted directories
     """
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # CRITICAL VULNERABILITY: No path validation whatsoever
-    # Directly trusts user input for file access
+    # VULNERABLE (COMMENTED): Unrestricted File Path Access
+    # Allows direct access to ANY file on the system
+    # try:
+    #     if os.path.exists(filepath) and os.path.isfile(filepath):
+    #         database.log_action('FILE_ACCESS', session.get('username'), f"Accessed file: {filepath}")
+    #         return send_file(filepath)
+    #     else:
+    #         return "File not found or not a file", 404
+    # except Exception as e:
+    #     return f"Error accessing file: {str(e)}", 500
+    
+    # FIXED: Restrict access to upload directory only
+    # Validate filepath and ensure it's within UPLOAD_FOLDER
+    normalized_path = os.path.normpath(filepath)
+    upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
+    requested_path = os.path.abspath(normalized_path)
+    
+    # FIXED: Check if requested path is within upload directory
+    if not requested_path.startswith(upload_dir):
+        flash('Access to this file is not permitted', 'danger')
+        return redirect(url_for('dashboard')), 403
+    
+    if not os.path.isfile(requested_path):
+        flash('File not found', 'danger')
+        return redirect(url_for('dashboard')), 404
+    
     try:
-        if os.path.exists(filepath) and os.path.isfile(filepath):
-            database.log_action('FILE_ACCESS', session.get('username'), f"Accessed file: {filepath}")
-            return send_file(filepath)
-        else:
-            return "File not found or not a file", 404
+        database.log_action('FILE_ACCESS', session.get('username'), f'Accessed file')
+        return send_file(requested_path)
     except Exception as e:
-        # VULNERABILITY: Information Disclosure - reveals errors
-        return f"Error accessing file: {str(e)}", 500
+        # FIXED: Generic error message - no info disclosure
+        flash('Error accessing file', 'danger')
+        return redirect(url_for('dashboard')), 500
 
 @app.route('/view_logs')
 def view_logs():
@@ -382,18 +500,24 @@ def logout():
 
 @app.errorhandler(404)
 def not_found(error):
-    # VULNERABILITY: Information Disclosure - Detailed error
-    return f"404 Error: {error}", 404
+    # FIXED: Generic error message - no detailed errors
+    flash('Page not found', 'danger')
+    return render_template('404.html'), 404
 
 @app.errorhandler(500)
 def internal_error(error):
-    # VULNERABILITY: Information Disclosure - Stack trace exposed
-    return f"500 Internal Server Error: {error}", 500
+    # FIXED: Generic error message - no stack trace exposure
+    flash('Internal server error', 'danger')
+    return render_template('500.html'), 500
 
 if __name__ == '__main__':
-    # VULNERABILITY: Running in debug mode (not for production)
-    # Debug mode exposes detailed error pages and allows code execution
-    app.run(debug=True, host='0.0.0.0', port=5000)
-
-    #testing
+    # FIXED: Debug disabled, localhost binding, secure settings
+    # VULNERABLE (COMMENTED): app.run(debug=True, host='0.0.0.0', port=5000)
+    # Running with secure defaults
+    debug_mode = app.config.get('DEBUG', False)
+    host = app.config.get('HOST', '127.0.0.1')
+    print(f"[*] Starting Flask app...")
+    print(f"[*] Debug Mode: {debug_mode}")
+    print(f"[*] Host: {host}:5000")
+    app.run(debug=debug_mode, host=host, port=5000, use_reloader=False)
 
