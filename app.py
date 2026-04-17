@@ -336,11 +336,6 @@ def upload_file():
             flash('No file selected', 'danger')
             return redirect(url_for('upload_file'))
         
-        # VULNERABLE (COMMENTED): No proper file validation
-        # filename = file.filename  # No sanitization
-        # filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)  # Path Traversal
-        # file.save(filepath)  # Allows any file type including .exe, .sh, .bat
-        
         # FIXED: Secure filename handling
         filename = secure_filename(file.filename)
         
@@ -395,12 +390,6 @@ def download_file(filename):
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # VULNERABLE (COMMENTED): Path Traversal - No sanitization
-    # filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    # if os.path.exists(filepath):
-    #     return send_file(filepath)
-    
-    # FIXED: Secure filename and path validation
     filename = secure_filename(filename)
     if not filename:
         flash('Invalid filename', 'danger')
@@ -409,7 +398,6 @@ def download_file(filename):
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     filepath = os.path.abspath(filepath)  # Resolve to absolute path
     
-    # FIXED: Ensure filepath is within UPLOAD_FOLDER directory
     upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
     if not filepath.startswith(upload_dir) or not os.path.isfile(filepath):
         flash('File not found or access denied', 'danger')
@@ -418,8 +406,7 @@ def download_file(filename):
     try:
         database.log_action('FILE_DOWNLOAD', session.get('username'), f'Downloaded file: {filename}')
         return send_file(filepath)
-    except Exception as e:
-        # FIXED: Generic error message
+    except Exception:
         flash('Error downloading file', 'danger')
         return redirect(url_for('dashboard')), 500
 
@@ -433,24 +420,10 @@ def access_file(filepath):
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # VULNERABLE (COMMENTED): Unrestricted File Path Access
-    # Allows direct access to ANY file on the system
-    # try:
-    #     if os.path.exists(filepath) and os.path.isfile(filepath):
-    #         database.log_action('FILE_ACCESS', session.get('username'), f"Accessed file: {filepath}")
-    #         return send_file(filepath)
-    #     else:
-    #         return "File not found or not a file", 404
-    # except Exception as e:
-    #     return f"Error accessing file: {str(e)}", 500
-    
-    # FIXED: Restrict access to upload directory only
-    # Validate filepath and ensure it's within UPLOAD_FOLDER
     normalized_path = os.path.normpath(filepath)
     upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
     requested_path = os.path.abspath(normalized_path)
     
-    # FIXED: Check if requested path is within upload directory
     if not requested_path.startswith(upload_dir):
         flash('Access to this file is not permitted', 'danger')
         return redirect(url_for('dashboard')), 403
@@ -460,10 +433,9 @@ def access_file(filepath):
         return redirect(url_for('dashboard')), 404
     
     try:
-        database.log_action('FILE_ACCESS', session.get('username'), f'Accessed file')
+        database.log_action('FILE_ACCESS', session.get('username'), 'Accessed file')
         return send_file(requested_path)
-    except Exception as e:
-        # FIXED: Generic error message - no info disclosure
+    except Exception:
         flash('Error accessing file', 'danger')
         return redirect(url_for('dashboard')), 500
 
@@ -512,12 +484,10 @@ def internal_error(error):
 
 if __name__ == '__main__':
     # FIXED: Debug disabled, localhost binding, secure settings
-    # VULNERABLE (COMMENTED): app.run(debug=True, host='0.0.0.0', port=5000)
-    # Running with secure defaults
     debug_mode = app.config.get('DEBUG', False)
     host = app.config.get('HOST', '127.0.0.1')
     print(f"[*] Starting Flask app...")
     print(f"[*] Debug Mode: {debug_mode}")
     print(f"[*] Host: {host}:5000")
-    app.run(debug=debug_mode, host=host, port=5000, use_reloader=False)
+    app.run(debug=debug_mode, host=host, port=5000, use_reloader=False))
 

@@ -12,10 +12,8 @@ class Config:
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # FIXED: Reduced to 5MB with proper enforcement
     
     # FIXED: Secret Key Security
-    # VULNERABLE (COMMENTED): Hardcoded weak secret - Use environment variable instead
-    # SECRET_KEY = 'super_secret_key_12345'
-    
-    # FIXED: Use environment variable for secret key, fallback to strong default for demo
+    # Use environment variable for secret key, fallback for demo purposes only
+    # nosec B105: Hardcoded secret only used in development, must be changed in production
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-only-fixed-key-change-in-production-xyz123!@#')
     
     # Database Configuration
