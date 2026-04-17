@@ -76,9 +76,9 @@ def login():
             # VULNERABILITY: Information Disclosure
             error = "Invalid username or password"
             database.log_action('LOGIN_FAILED', username, f"Failed login attempt with password: {password}")
-            return render_template('login.html', error=error)
+            return render_template('login_new.html', error=error)
     
-    return render_template('login.html')
+    return render_template('login_new.html')
 
 @app.route('/dashboard')
 def dashboard():
@@ -90,63 +90,10 @@ def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    role = session.get('role', 'user')
-    username = session.get('username')
-    
-    if role == 'admin':
-        # Admin dashboard - full access to all functions
-        return f'''
-        <h1>Admin Dashboard</h1>
-        <p>Welcome, <b>Admin: {username}</b></p>
-        <h3>Student Management</h3>
-        <ul>
-            <li><a href="/students">View All Students</a></li>
-            <li><a href="/add_student">Add New Student</a></li>
-            <li><a href="/search">Search Students</a></li>
-        </ul>
-        <h3>File Management</h3>
-        <ul>
-            <li><a href="/upload">Upload File</a></li>
-        </ul>
-        <h3>System</h3>
-        <ul>
-            <li><a href="/view_logs">View System Logs</a></li>
-            <li><a href="/logout">Logout</a></li>
-        </ul>
-        '''
-    
-    elif role == 'student':
-        # Student dashboard - limited access
-        return f'''
-        <h1>Student Dashboard</h1>
-        <p>Welcome, <b>Student: {username}</b></p>
-        <h3>My Academic Information</h3>
-        <ul>
-            <li><a href="/student/grades">View My Grades & GPA</a></li>
-            <li><a href="/student/profile">View My Profile</a></li>
-        </ul>
-        <h3>Account</h3>
-        <ul>
-            <li><a href="/logout">Logout</a></li>
-        </ul>
-        '''
-    
-    else:
-        # Regular user dashboard
-        return f'''
-        <h1>User Dashboard</h1>
-        <p>Welcome, <b>User: {username}</b></p>
-        <ul>
-            <li><a href="/students">View Students</a></li>
-            <li><a href="/add_student">Add Student</a></li>
-            <li><a href="/search">Search Students</a></li>
-            <li><a href="/upload">Upload File</a></li>
-            <li><a href="/logout">Logout</a></li>
-        </ul>
-        '''
+    return render_template('dashboard_new.html')
 
 @app.route('/students')
-def view_students():
+def students():
     """
     VULNERABILITY: No access control - any authenticated user can see all data
     Exposes sensitive information (SSN, passwords)
@@ -162,16 +109,10 @@ def view_students():
     conn = database.sqlite3.connect(database.DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT id, roll_no, name, email, phone, ssn FROM students')
-    students = cursor.fetchall()
+    students_list = cursor.fetchall()
     conn.close()
     
-    html = '<h1>Student List</h1><table border="1"><tr><th>ID</th><th>Roll No</th><th>Name</th><th>Email</th><th>Phone</th><th>SSN</th><th>Action</th></tr>'
-    
-    for student in students:
-        html += f'<tr><td>{student[0]}</td><td>{student[1]}</td><td>{student[2]}</td><td>{student[3]}</td><td>{student[4]}</td><td>{student[5]}</td><td><a href="/student/{student[0]}">View</a></td></tr>'
-    
-    html += '</table><br><a href="/dashboard">Back</a>'
-    return html
+    return render_template('students_new.html', students=students_list)
 
 @app.route('/student/<student_id>')
 def view_student(student_id):
@@ -193,19 +134,7 @@ def view_student(student_id):
     if not student:
         return "Student not found", 404
     
-    # VULNERABILITY: Sensitive data exposure
-    return f'''
-    <h1>Student Details</h1>
-    <p><b>Roll No:</b> {student[1]}</p>
-    <p><b>Name:</b> {student[2]}</p>
-    <p><b>Email:</b> {student[3]}</p>
-    <p><b>Phone:</b> {student[4]}</p>
-    <p><b>Address:</b> {student[5]}</p>
-    <p><b>SSN:</b> {student[6]}</p>  <!-- VULNERABLE: Exposing SSN -->
-    <p><b>GPA:</b> {student[7]}</p>
-    <p><b>Password:</b> {student[8]}</p>  <!-- VULNERABLE: Exposing password! -->
-    <br><a href="/students">Back</a>
-    '''
+    return render_template('student_view.html', student=student)
 
 @app.route('/student/profile')
 def student_profile():
@@ -232,16 +161,7 @@ def student_profile():
     if not student:
         return "Your student record not found", 404
     
-    return f'''
-    <h1>My Profile</h1>
-    <p><b>Roll Number:</b> {student[1]}</p>
-    <p><b>Name:</b> {student[2]}</p>
-    <p><b>Email:</b> {student[3]}</p>
-    <p><b>Phone:</b> {student[4]}</p>
-    <p><b>Address:</b> {student[5]}</p>
-    <p><b>CGPA:</b> {student[6]}</p>
-    <br><a href="/dashboard">Back to Dashboard</a>
-    '''
+    return render_template('student_profile_new.html', student=student)
 
 @app.route('/student/grades')
 def student_grades():
@@ -267,43 +187,7 @@ def student_grades():
     if not student:
         return "Your student record not found", 404
     
-    # VULNERABILITY: Password shown here too (information disclosure)
-    return f'''
-    <h1>My Academic Performance</h1>
-    <h2>Student Information</h2>
-    <p><b>Roll Number:</b> {student[0]}</p>
-    <p><b>Name:</b> {student[1]}</p>
-    
-    <h2>Academic Performance</h2>
-    <p><b>CGPA (Cumulative Grade Point Average):</b> {student[2]}</p>
-    <p><b>Status:</b> {'Good Standing' if float(student[2]) >= 3.0 else 'Probation'}</p>
-    
-    <h3>Performance Analysis</h3>
-    <table border="1">
-        <tr>
-            <th>GPA Range</th>
-            <th>Performance</th>
-        </tr>
-        <tr>
-            <td>3.8 - 4.0</td>
-            <td>Excellent</td>
-        </tr>
-        <tr>
-            <td>3.5 - 3.7</td>
-            <td>Very Good</td>
-        </tr>
-        <tr>
-            <td>3.0 - 3.4</td>
-            <td>Good</td>
-        </tr>
-        <tr>
-            <td>< 3.0</td>
-            <td>Needs Improvement</td>
-        </tr>
-    </table>
-    
-    <br><a href="/dashboard">Back to Dashboard</a>
-    '''
+    return render_template('student_grades_new.html', student=student)
 
 @app.route('/add_student', methods=['GET', 'POST'])
 def add_student():
@@ -331,24 +215,15 @@ def add_student():
         
         # VULNERABLE: No validation, SQL injection possible
         if database.add_student(roll_no, name, email, phone, address, ssn, gpa):
-            return "Student added successfully! <a href='/dashboard'>Back</a>"
+            import flask
+            flask.flash('Student added successfully!', 'success')
+            return redirect(url_for('dashboard'))
         else:
-            return "Error adding student <a href='/dashboard'>Back</a>"
+            import flask
+            flask.flash('Error adding student', 'danger')
+            return redirect(url_for('add_student'))
     
-    return '''
-    <h1>Add Student</h1>
-    <form method="POST">
-        Roll No: <input type="text" name="roll_no"><br>
-        Name: <input type="text" name="name"><br>
-        Email: <input type="email" name="email"><br>
-        Phone: <input type="text" name="phone"><br>
-        Address: <input type="text" name="address"><br>
-        SSN: <input type="text" name="ssn"><br>
-        GPA: <input type="float" name="gpa"><br>
-        <input type="submit" value="Add Student">
-    </form>
-    <a href="/dashboard">Back</a>
-    '''
+    return render_template('add_student_new.html')
 
 @app.route('/search', methods=['GET', 'POST'])
 def search_students():
@@ -373,23 +248,7 @@ def search_students():
         # VULNERABILITY: Information Disclosure - Shows query
         print(f"[*] Search performed for: {search_term}")
     
-    html = '''
-    <h1>Search Students</h1>
-    <form method="POST">
-        Search: <input type="text" name="search">
-        <input type="submit" value="Search">
-    </form>
-    '''
-    
-    if results:
-        html += '<h3>Results:</h3><table border="1">'
-        html += '<tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Roll No</th></tr>'
-        for result in results:
-            html += f'<tr><td>{result[0]}</td><td>{result[1]}</td><td>{result[2]}</td><td>{result[3]}</td><td>{result[4]}</td></tr>'
-        html += '</table>'
-    
-    html += '<a href="/dashboard">Back</a>'
-    return html
+    return render_template('search_new.html', results=results)
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
@@ -410,12 +269,16 @@ def upload_file():
     
     if request.method == 'POST':
         if 'file' not in request.files:
-            return 'No file selected'
+            import flask
+            flask.flash('No file selected', 'danger')
+            return redirect(url_for('upload_file'))
         
         file = request.files['file']
         
         if file.filename == '':
-            return 'No file selected'
+            import flask
+            flask.flash('No file selected', 'danger')
+            return redirect(url_for('upload_file'))
         
         # VULNERABILITY: No proper file validation
         # Allow dangerous file extensions
@@ -433,16 +296,11 @@ def upload_file():
         # VULNERABILITY: Information Disclosure - Log file path
         database.log_action('FILE_UPLOAD', session.get('username'), f"Uploaded file: {filepath}")
         
-        return f"File uploaded successfully! <a href='/dashboard'>Back</a><br>File path: {filepath}"
+        import flask
+        flask.flash(f'File "{filename}" uploaded successfully!', 'success')
+        return redirect(url_for('dashboard'))
     
-    return '''
-    <h1>Upload File</h1>
-    <form method="POST" enctype="multipart/form-data">
-        <input type="file" name="file">
-        <input type="submit" value="Upload">
-    </form>
-    <a href="/dashboard">Back</a>
-    '''
+    return render_template('upload_new.html')
 
 @app.route('/download/<filename>')
 def download_file(filename):
@@ -491,7 +349,7 @@ def access_file(filepath):
         # VULNERABILITY: Information Disclosure - reveals errors
         return f"Error accessing file: {str(e)}", 500
 
-@app.route('/logs')
+@app.route('/view_logs')
 def view_logs():
     """
     VULNERABILITY: Information Disclosure + Sensitive Data Exposure
@@ -514,14 +372,7 @@ def view_logs():
     logs = cursor.fetchall()
     conn.close()
     
-    html = '<h1>System Logs</h1><table border="1"><tr><th>ID</th><th>Action</th><th>Username</th><th>Details</th><th>Timestamp</th></tr>'
-    
-    for log in logs:
-        # VULNERABLE: Displays sensitive information including passwords
-        html += f'<tr><td>{log[0]}</td><td>{log[1]}</td><td>{log[2]}</td><td>{log[3]}</td><td>{log[4]}</td></tr>'
-    
-    html += '</table><br><a href="/dashboard">Back</a>'
-    return html
+    return render_template('logs_new.html', logs=logs)
 
 @app.route('/logout')
 def logout():
@@ -545,4 +396,4 @@ if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
 
     #testing
-    
+
