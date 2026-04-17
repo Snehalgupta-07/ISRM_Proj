@@ -1,6 +1,7 @@
 # Main Flask Application - FIXED VERSION with Security Improvements
 from flask import Flask, render_template, request, redirect, session, url_for, send_file, flash
 from werkzeug.utils import secure_filename
+from flask_wtf.csrf import CSRFProtect
 import os
 import database
 from config import Config
@@ -9,6 +10,9 @@ import re
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
+# FIXED: CSRF Protection - All POST/PUT/DELETE requests require valid CSRF tokens
+csrf = CSRFProtect(app)
 
 # Initialize database
 if not os.path.exists(database.DB_NAME):
