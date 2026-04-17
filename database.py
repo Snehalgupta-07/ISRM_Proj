@@ -112,7 +112,9 @@ def authenticate_user(username, password):
         user = cursor.fetchone()
     except Exception as e:
         # FIXED: Generic error message - no information disclosure
-        pass
+        # Log the error internally but don't expose details
+        import logging
+        logging.error("Database authentication error occurred")
     finally:
         conn.close()  # Close connection BEFORE logging
     
@@ -237,6 +239,7 @@ def log_action(action, username, details):
         
         conn.commit()
         conn.close()
-    except sqlite3.OperationalError:
-        # If database is locked, just continue
-        pass
+    except sqlite3.OperationalError as e:
+        # If database is locked, log but continue - logging is non-critical
+        import logging
+        logging.warning("Database locked during logging operation, continuing")
