@@ -72,9 +72,9 @@ pipeline {
                     
                     if (report.contains('"issue_severity": "HIGH"') || report.contains('"issue_severity": "CRITICAL"')) {
                         currentBuild.result = 'FAILURE'
-                        echo "❌ Vulnerabilities found → marking build as FAILED"
+                        echo " Vulnerabilities found → marking build as FAILED"
                     } else {
-                        echo "✅ No high vulnerabilities"
+                        echo " No high vulnerabilities"
                     }
                 }
             }
