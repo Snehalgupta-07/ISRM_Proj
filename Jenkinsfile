@@ -3,7 +3,6 @@ pipeline {
     
     environment {
         PYTHON_PATH = "C:\\Users\\Snehal\\AppData\\Local\\Programs\\Python\\Python39\\python.exe"
-        PROJECT_NAME = 'ISRM_Vulnerable_App'
         REPORT_DIR = 'reports'
     }
     
@@ -15,23 +14,17 @@ pipeline {
         
         stage('0. Checkout') {
             steps {
-                echo "========== CLONING REPOSITORY =========="
-                
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: '*/main']],
                     userRemoteConfigs: [[url: 'https://github.com/Snehalgupta-07/ISRM_Proj.git']]
                 ])
-                
                 bat 'dir'
-                echo "[+] Repository cloned successfully"
             }
         }
         
         stage('1. Build') {
             steps {
-                echo "========== BUILD STAGE =========="
-                
                 bat """
                     ${PYTHON_PATH} --version
                     
@@ -45,43 +38,45 @@ pipeline {
                     venv\\Scripts\\pip install -r requirements.txt
                     venv\\Scripts\\pip install bandit
                 """
-                
-                echo "[+] Build completed"
             }
         }
         
         stage('2. Security Scan') {
             steps {
-                echo "========== SECURITY SCANNING =========="
-                
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                bat """
+                    if not exist reports mkdir reports
                     
-                    bat """
-                        if not exist reports mkdir reports
-                        
-                        chcp 65001
-                        
-                        call venv\\Scripts\\activate.bat
-                        
-                        venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
-                        venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
-                        venv\\Scripts\\bandit -r . -ll
-                    """
-                }
+                    call venv\\Scripts\\activate.bat
+                    
+                    venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
+                    venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
+                """
             }
         }
         
         stage('3. Report Generation') {
             steps {
-                echo "========== REPORT GENERATION =========="
-                
                 bat """
                     call venv\\Scripts\\activate.bat
                     ${PYTHON_PATH} generate_vulnerability_report.py
                 """
                 
                 archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
-                echo "[+] Reports archived"
+            }
+        }
+        
+        stage('4. Enforce Security Gate') {
+            steps {
+                script {
+                    def report = readFile('reports/bandit_report.json')
+                    
+                    if (report.contains('"issue_severity": "HIGH"') || report.contains('"issue_severity": "CRITICAL"')) {
+                        currentBuild.result = 'FAILURE'
+                        echo "❌ Vulnerabilities found → marking build as FAILED"
+                    } else {
+                        echo "✅ No high vulnerabilities"
+                    }
+                }
             }
         }
     }
@@ -91,10 +86,10 @@ pipeline {
             echo "========== PIPELINE COMPLETE =========="
         }
         success {
-            echo "[SUCCESS] Pipeline executed successfully"
+            echo "[SUCCESS] Secure build passed"
         }
         failure {
-            echo "[FAILURE] Pipeline failed"
+            echo "[FAILURE] Build failed due to vulnerabilities (report generated)"
         }
     }
 }
