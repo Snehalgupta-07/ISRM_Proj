@@ -11,23 +11,23 @@ import secrets
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# # FIXED: CSRF Protection - Manual implementation to avoid dependency issues
-# def generate_csrf_token():
-#     """Generate a secure CSRF token"""
-#     if '_csrf_token' not in session:
-#         session['_csrf_token'] = secrets.token_hex(32)
-#     return session['_csrf_token']
+# FIXED: CSRF Protection - Manual implementation to avoid dependency issues
+def generate_csrf_token():
+    """Generate a secure CSRF token"""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
 
-# def validate_csrf_token(token):
-#     """Validate CSRF token from request"""
-#     if '_csrf_token' not in session:
-#         return False
-#     return secrets.compare_digest(token, session['_csrf_token'])
+def validate_csrf_token(token):
+    """Validate CSRF token from request"""
+    if '_csrf_token' not in session:
+        return False
+    return secrets.compare_digest(token, session['_csrf_token'])
 
-# # Make csrf_token() available in all templates
-# @app.context_processor
-# def inject_csrf_token():
-#     return dict(csrf_token=generate_csrf_token)
+# Make csrf_token() available in all templates
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=generate_csrf_token)
 
 # Initialize database
 if not os.path.exists(database.DB_NAME):
@@ -82,11 +82,11 @@ def login():
     5. Password logging - No longer logs passwords
     """
     if request.method == 'POST':
-        # # FIXED: CSRF Token Validation
-        # csrf_token = request.form.get('csrf_token', '')
-        # if not validate_csrf_token(csrf_token):
-        #     flash('Security validation failed. Please try again.', 'danger')
-        #     return render_template('login_new.html')
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return render_template('login_new.html')
         
         username = request.form.get('username', '').strip()  # FIXED: Input trimming
         password = request.form.get('password', '')
@@ -264,11 +264,11 @@ def add_student():
         return redirect(url_for('dashboard')), 403
     
     if request.method == 'POST':
-        # # FIXED: CSRF Token Validation
-        # csrf_token = request.form.get('csrf_token', '')
-        # if not validate_csrf_token(csrf_token):
-        #     flash('Security validation failed. Please try again.', 'danger')
-        #     return render_template('add_student_new.html')
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return render_template('add_student_new.html')
         
         # FIXED: Input validation for all fields
         roll_no = request.form.get('roll_no', '').strip()
@@ -326,11 +326,11 @@ def search_students():
     
     results = []
     if request.method == 'POST':
-        # # FIXED: CSRF Token Validation
-        # csrf_token = request.form.get('csrf_token', '')
-        # if not validate_csrf_token(csrf_token):
-        #     flash('Security validation failed. Please try again.', 'danger')
-        #     return render_template('search_new.html', results=[])
+        # FIXED: CSRF Token Validation
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return render_template('search_new.html', results=[])
         
         search_term = request.form.get('search', '').strip()  # FIXED: Input trimming
         
@@ -364,10 +364,10 @@ def upload_file():
     
     if request.method == 'POST':
         # FIXED: CSRF Token Validation
-        # csrf_token = request.form.get('csrf_token', '')
-        # if not validate_csrf_token(csrf_token):
-        #     flash('Security validation failed. Please try again.', 'danger')
-        #     return redirect(url_for('upload_file'))
+        csrf_token = request.form.get('csrf_token', '')
+        if not validate_csrf_token(csrf_token):
+            flash('Security validation failed. Please try again.', 'danger')
+            return redirect(url_for('upload_file'))
         
         if 'file' not in request.files:
             flash('No file selected', 'danger')
@@ -511,10 +511,10 @@ def view_logs():
 def logout():
     """FIXED: CSRF token protection on logout"""
     # FIXED: CSRF Token Validation
-    # csrf_token = request.form.get('csrf_token', '')
-    # if not validate_csrf_token(csrf_token):
-    #     flash('Security validation failed.', 'danger')
-    #     return redirect(url_for('dashboard'))
+    csrf_token = request.form.get('csrf_token', '')
+    if not validate_csrf_token(csrf_token):
+        flash('Security validation failed.', 'danger')
+        return redirect(url_for('dashboard'))
     
     session.clear()
     flash('You have been logged out successfully.', 'info')
