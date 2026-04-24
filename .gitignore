@@ -26,7 +26,7 @@ flask_session/
 # Generated reports and artifacts
 reports/
 *.json
-*.html
+reports/*.html
 uploads/*
 
 # Logs
