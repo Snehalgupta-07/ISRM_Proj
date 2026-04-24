@@ -30,13 +30,19 @@
                     <td>#{{ log[0] }}</td>
                     <td>
                         {% if log[1] == 'LOGIN_SUCCESS' %}
-                            <span class="log-action log-login">{{ log[1] }}</span>
+                            <span class="log-action log-login" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;">{{ log[1] }}</span>
                         {% elif log[1] == 'LOGIN_FAILED' %}
-                            <span class="log-action log-failed">{{ log[1] }}</span>
+                            <span class="log-action log-failed" style="background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;">{{ log[1] }}</span>
+                        {% elif log[1] == 'SECURITY_WARNING' %}
+                            <span class="log-action" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; border: 1px solid rgba(245, 158, 11, 0.3);">{{ log[1] }}</span>
+                        {% elif log[1] == 'SECURITY_VIOLATION' or log[1] == 'UNAUTHORIZED_ACCESS' %}
+                            <span class="log-action" style="background: rgba(239, 68, 68, 0.2); color: #f87171; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; border: 1px solid rgba(239, 68, 68, 0.4);">{{ log[1] }}</span>
+                        {% elif log[1] == 'MALICIOUS_UPLOAD_ATTEMPT' %}
+                            <span class="log-action" style="background: rgba(220, 38, 38, 0.3); color: #fca5a5; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; border: 1px solid rgba(220, 38, 38, 0.5); box-shadow: 0 0 10px rgba(220, 38, 38, 0.4);">{{ log[1] }}</span>
                         {% elif 'UPLOAD' in log[1] or 'DOWNLOAD' in log[1] %}
-                            <span class="log-action log-upload">{{ log[1] }}</span>
+                            <span class="log-action log-upload" style="background: rgba(56, 189, 248, 0.15); color: #7dd3fc; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;">{{ log[1] }}</span>
                         {% else %}
-                            <span class="log-action log-access">{{ log[1] }}</span>
+                            <span class="log-action log-access" style="background: rgba(148, 163, 184, 0.15); color: #cbd5e1; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;">{{ log[1] }}</span>
                         {% endif %}
                     </td>
                     <td><strong>{{ log[2] }}</strong></td>

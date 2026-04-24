@@ -85,6 +85,7 @@ def login():
         # FIXED: CSRF Token Validation
         csrf_token = request.form.get('csrf_token', '')
         if not validate_csrf_token(csrf_token):
+            database.log_action('SECURITY_VIOLATION', request.remote_addr, 'CSRF validation failed on login')
             flash('Security validation failed. Please try again.', 'danger')
             return render_template('login_new.html')
         
@@ -98,6 +99,7 @@ def login():
         
         # FIXED: Rate limiting enforcement
         if not check_rate_limit(username):
+            database.log_action('SECURITY_WARNING', username, 'Rate limit exceeded during login')
             flash('Too many login attempts. Please try again later.', 'danger')
             return render_template('login_new.html')
         
@@ -151,6 +153,7 @@ def students():
     
     role = session.get('role', 'user')
     if role == 'student':
+        database.log_action('UNAUTHORIZED_ACCESS', session.get('username'), 'Attempted to access all students list')
         return "Access Denied: Students cannot view all student records", 403
     
     conn = database.sqlite3.connect(database.DB_NAME)
@@ -175,6 +178,7 @@ def view_student(student_id):
     
     role = session.get('role', 'user')
     if role == 'student':
+        database.log_action('UNAUTHORIZED_ACCESS', session.get('username'), f'Attempted to view other student record (ID: {student_id})')
         flash('Access Denied: Students cannot view other student records', 'danger')
         return redirect(url_for('dashboard')), 403
     
@@ -182,6 +186,7 @@ def view_student(student_id):
     try:
         student_id = int(student_id)
     except (ValueError, TypeError):
+        database.log_action('SECURITY_WARNING', session.get('username'), f'Invalid student ID format: {student_id}')
         flash('Invalid student ID', 'danger')
         return redirect(url_for('students')), 400
     
@@ -260,6 +265,7 @@ def add_student():
     
     role = session.get('role', 'user')
     if role != 'admin':
+        database.log_action('UNAUTHORIZED_ACCESS', session.get('username'), 'Attempted to access add_student page')
         flash('Access Denied: Only admins can add students', 'danger')
         return redirect(url_for('dashboard')), 403
     
@@ -267,6 +273,7 @@ def add_student():
         # FIXED: CSRF Token Validation
         csrf_token = request.form.get('csrf_token', '')
         if not validate_csrf_token(csrf_token):
+            database.log_action('SECURITY_VIOLATION', session.get('username'), 'CSRF validation failed on add_student')
             flash('Security validation failed. Please try again.', 'danger')
             return render_template('add_student_new.html')
         
@@ -321,6 +328,7 @@ def search_students():
     
     role = session.get('role', 'user')
     if role == 'student':
+        database.log_action('UNAUTHORIZED_ACCESS', session.get('username'), 'Attempted to search students')
         flash('Access Denied: Students cannot search student records', 'danger')
         return redirect(url_for('dashboard')), 403
     
@@ -329,6 +337,7 @@ def search_students():
         # FIXED: CSRF Token Validation
         csrf_token = request.form.get('csrf_token', '')
         if not validate_csrf_token(csrf_token):
+            database.log_action('SECURITY_VIOLATION', session.get('username'), 'CSRF validation failed on search')
             flash('Security validation failed. Please try again.', 'danger')
             return render_template('search_new.html', results=[])
         
@@ -359,6 +368,7 @@ def upload_file():
     
     role = session.get('role', 'user')
     if role == 'student':
+        database.log_action('UNAUTHORIZED_ACCESS', session.get('username'), 'Attempted to access file upload')
         flash('Access Denied: Only admin and users can upload files', 'danger')
         return redirect(url_for('dashboard')), 403
     
@@ -366,6 +376,7 @@ def upload_file():
         # FIXED: CSRF Token Validation
         csrf_token = request.form.get('csrf_token', '')
         if not validate_csrf_token(csrf_token):
+            database.log_action('SECURITY_VIOLATION', session.get('username'), 'CSRF validation failed on file upload')
             flash('Security validation failed. Please try again.', 'danger')
             return redirect(url_for('upload_file'))
         
@@ -389,6 +400,10 @@ def upload_file():
         
         file_ext = filename.rsplit('.', 1)[1].lower()
         if file_ext not in app.config['ALLOWED_EXTENSIONS']:
+            if file_ext in ['exe', 'bat', 'sh', 'cmd', 'ps1', 'php', 'py', 'vbs', 'scr']:
+                database.log_action('MALICIOUS_UPLOAD_ATTEMPT', session.get('username'), f'Attempted to upload dangerous file type: {filename}')
+            else:
+                database.log_action('SECURITY_WARNING', session.get('username'), f'Attempted to upload disallowed file type: {filename}')
             flash(f'File type .{file_ext} not allowed. Allowed types: {", ".join(app.config["ALLOWED_EXTENSIONS"])}', 'danger')
             return redirect(url_for('upload_file'))
         
@@ -399,6 +414,7 @@ def upload_file():
         
         max_size = app.config['MAX_CONTENT_LENGTH']
         if file_size > max_size:
+            database.log_action('SECURITY_WARNING', session.get('username'), f'Attempted to upload oversized file: {filename} ({file_size} bytes)')
             flash(f'File size exceeds maximum allowed size of {max_size / (1024*1024):.1f}MB', 'danger')
             return redirect(url_for('upload_file'))
         
@@ -409,6 +425,7 @@ def upload_file():
         # FIXED: Ensure filepath is within UPLOAD_FOLDER
         upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
         if not filepath.startswith(upload_dir):
+            database.log_action('SECURITY_VIOLATION', session.get('username'), f'Path traversal attempt blocked during upload: {filename}')
             flash('Invalid file path', 'danger')
             return redirect(url_for('upload_file'))
         
@@ -443,6 +460,7 @@ def download_file(filename):
     
     upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
     if not filepath.startswith(upload_dir) or not os.path.isfile(filepath):
+        database.log_action('SECURITY_VIOLATION', session.get('username'), f'Attempted to access restricted or missing file: {filename}')
         flash('File not found or access denied', 'danger')
         return redirect(url_for('dashboard')), 404
     
@@ -468,6 +486,7 @@ def access_file(filepath):
     requested_path = os.path.abspath(normalized_path)
     
     if not requested_path.startswith(upload_dir):
+        database.log_action('SECURITY_VIOLATION', session.get('username'), f'Attempted path traversal on file access: {filepath}')
         flash('Access to this file is not permitted', 'danger')
         return redirect(url_for('dashboard')), 403
     
@@ -494,6 +513,7 @@ def view_logs():
     
     role = session.get('role', 'user')
     if role != 'admin':
+        database.log_action('UNAUTHORIZED_ACCESS', session.get('username'), 'Attempted to access system logs')
         return "Access Denied: Only admins can view logs", 403
     
     # VULNERABILITY: No role-based access control
@@ -513,10 +533,14 @@ def logout():
     # FIXED: CSRF Token Validation
     csrf_token = request.form.get('csrf_token', '')
     if not validate_csrf_token(csrf_token):
+        database.log_action('SECURITY_VIOLATION', session.get('username'), 'CSRF validation failed on logout')
         flash('Security validation failed.', 'danger')
         return redirect(url_for('dashboard'))
     
+    username = session.get('username')
     session.clear()
+    if username:
+        database.log_action('LOGOUT', username, 'User logged out successfully')
     flash('You have been logged out successfully.', 'info')
     return redirect(url_for('login'))
 
