@@ -3,7 +3,6 @@ pipeline {
     
     environment {
         PYTHON_PATH = "C:\\Users\\Snehal\\AppData\\Local\\Programs\\Python\\Python39\\python.exe"
-        PROJECT_NAME = 'ISRM_Vulnerable_App'
         REPORT_DIR = 'reports'
     }
     
@@ -16,13 +15,9 @@ pipeline {
         stage('0. Checkout') {
             steps {
                 echo "========== CHECKOUT STAGE =========="
-                
-                // 🔥 FIX: Use branch-aware checkout
                 cleanWs()
                 checkout scm
-                
                 bat 'dir'
-                echo "[+] Correct branch checked out"
             }
         }
         
@@ -43,8 +38,6 @@ pipeline {
                     venv\\Scripts\\pip install -r requirements.txt
                     venv\\Scripts\\pip install bandit
                 """
-                
-                echo "[+] Build completed"
             }
         }
         
@@ -52,22 +45,18 @@ pipeline {
             steps {
                 echo "========== SECURITY SCANNING =========="
                 
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                bat """
+                    if not exist reports mkdir reports
                     
-                    bat """
-                        if not exist reports mkdir reports
-                        
-                        chcp 65001
-                        
-                        call venv\\Scripts\\activate.bat
-                        
-                        echo [*] Running Bandit scan on CURRENT BRANCH...
-                        
-                        venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
-                        venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
-                        venv\\Scripts\\bandit -r . -ll
-                    """
-                }
+                    chcp 65001
+                    
+                    call venv\\Scripts\\activate.bat
+                    
+                    echo [*] Running Bandit scan...
+                    
+                    venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
+                    venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
+                """
             }
         }
         
@@ -81,7 +70,65 @@ pipeline {
                 """
                 
                 archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
-                echo "[+] Reports archived"
+            }
+        }
+
+        stage('4. Enforce Security Gate (CVSS > 5)') {
+            steps {
+                echo "========== SECURITY GATE =========="
+                
+                // Write the python script to a file, because Windows BAT does not support <<EOF heredocs
+                writeFile file: 'check_security_gate.py', text: '''
+import json
+import sys
+import os
+
+try:
+    with open('reports/bandit_report.json') as f:
+        data = json.load(f)
+except FileNotFoundError:
+    print("❌ Bandit report not found!")
+    sys.exit(1)
+
+mapping = {
+    'B608': 9.0,
+    'B105': 8.0,
+    'B607': 8.5,
+    'B610': 7.5,
+    'B201': 6.5,
+    'B104': 6.5,
+    'B101': 5.0,
+    'B110': 5.0,
+    'B102': 5.0
+}
+
+fail = False
+
+for v in data.get('results', []):
+    test_id = v.get('test_id')
+    filename = v.get('filename', '')
+    
+    # Filter to only check project files like the report generator does
+    if not any(f in filename for f in ['app.py', 'database.py', 'config.py']):
+        continue
+        
+    cvss = mapping.get(test_id, 5.0)
+    
+    if cvss > 5:
+        print(f"[!] High risk vulnerability: {test_id} (CVSS {cvss}) in {os.path.basename(filename)}")
+        fail = True
+
+if fail:
+    print("❌ Build FAILED due to CVSS > 5 vulnerabilities")
+    sys.exit(1)
+else:
+    print("✅ Build PASSED (No CVSS > 5 vulnerabilities found)")
+'''
+                bat """
+                    call venv\\Scripts\\activate.bat
+                    echo Checking for vulnerabilities with CVSS > 5...
+                    ${PYTHON_PATH} check_security_gate.py
+                """
             }
         }
     }
@@ -91,10 +138,10 @@ pipeline {
             echo "========== PIPELINE COMPLETE =========="
         }
         success {
-            echo "[SUCCESS] Pipeline executed successfully"
+            echo "[SUCCESS] No high-risk vulnerabilities"
         }
         failure {
-            echo "[FAILURE] Pipeline failed"
+            echo "[FAILURE] High-risk vulnerabilities detected"
         }
     }
 }
