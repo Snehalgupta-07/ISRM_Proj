@@ -54,8 +54,9 @@ pipeline {
                     
                     echo [*] Running Bandit scan...
                     
-                    venv\\Scripts\\bandit -r . -f json -o reports\\bandit_report.json
-                    venv\\Scripts\\bandit -r . -f html -o reports\\bandit_report.html
+                    REM 🔥 IMPORTANT: Do NOT fail pipeline here
+                    venv\\Scripts\\bandit -r . --exclude venv,.venv-1,reports -f json -o reports\\bandit_report.json || exit /b 0
+                    venv\\Scripts\\bandit -r . --exclude venv,.venv-1,reports -f html -o reports\\bandit_report.html || exit /b 0
                 """
             }
         }
@@ -77,7 +78,6 @@ pipeline {
             steps {
                 echo "========== SECURITY GATE =========="
                 
-                // Write the python script to a file, because Windows BAT does not support <<EOF heredocs
                 writeFile file: 'check_security_gate.py', text: '''
 import json
 import sys
@@ -108,7 +108,7 @@ for v in data.get('results', []):
     test_id = v.get('test_id')
     filename = v.get('filename', '')
     
-    # Filter to only check project files like the report generator does
+    # Only check your project files
     if not any(f in filename for f in ['app.py', 'database.py', 'config.py']):
         continue
         
@@ -124,6 +124,7 @@ if fail:
 else:
     print("✅ Build PASSED (No CVSS > 5 vulnerabilities found)")
 '''
+                
                 bat """
                     call venv\\Scripts\\activate.bat
                     echo Checking for vulnerabilities with CVSS > 5...
