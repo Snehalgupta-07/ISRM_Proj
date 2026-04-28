@@ -54,7 +54,7 @@ pipeline {
                     
                     echo [*] Running Bandit scan...
                     
-                    REM 🔥 IMPORTANT: Do NOT fail pipeline here
+                    REM  IMPORTANT: Do NOT fail pipeline here
                     venv\\Scripts\\bandit -r . --exclude venv,.venv-1,reports -f json -o reports\\bandit_report.json || exit /b 0
                     venv\\Scripts\\bandit -r . --exclude venv,.venv-1,reports -f html -o reports\\bandit_report.html || exit /b 0
                 """
@@ -87,7 +87,7 @@ try:
     with open('reports/bandit_report.json') as f:
         data = json.load(f)
 except FileNotFoundError:
-    print("❌ Bandit report not found!")
+    print(" Bandit report not found!")
     sys.exit(1)
 
 mapping = {
@@ -119,10 +119,10 @@ for v in data.get('results', []):
         fail = True
 
 if fail:
-    print("❌ Build FAILED due to CVSS > 5 vulnerabilities")
+    print(" Build FAILED due to CVSS > 5 vulnerabilities")
     sys.exit(1)
 else:
-    print("✅ Build PASSED (No CVSS > 5 vulnerabilities found)")
+    print(" Build PASSED (No CVSS > 5 vulnerabilities found)")
 '''
                 
                 bat """
