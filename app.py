@@ -544,6 +544,23 @@ def logout():
     flash('You have been logged out successfully.', 'info')
     return redirect(url_for('login'))
 
+@app.after_request
+def add_security_headers(response):
+    """FIXED: Added HTTP Security Headers to resolve ZAP warnings"""
+    # Prevents clickjacking (Missing Anti-clickjacking Header)
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    
+    # Prevents MIME-sniffing (X-Content-Type-Options Header Missing)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Restricts resource loading (Content Security Policy)
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self';"
+    
+    # Masks server version (Server Leaks Version Information)
+    response.headers['Server'] = 'ISRM-Secure-Server'
+    
+    return response
+
 @app.errorhandler(404)
 def not_found(error):
     # FIXED: Generic error message - no detailed errors
