@@ -20,3 +20,4 @@ class Config:
     # Session Configuration - VULNERABLE
     # Using Flask built-in sessions instead of Flask-Session
     PERMANENT_SESSION_LIFETIME = 86400  # 24 hours in seconds
+    SESSION_COOKIE_HTTPONLY = False  # VULNERABLE: Disabling HttpOnly allows JavaScript to read the session cookie

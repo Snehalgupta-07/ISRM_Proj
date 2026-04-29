@@ -39,8 +39,9 @@
                             <span class="log-action log-access">{{ log[1] }}</span>
                         {% endif %}
                     </td>
-                    <td><strong>{{ log[2] }}</strong></td>
-                    <td style="color: var(--text-muted); font-size: 13px;">{{ log[3] }}</td>
+                    <!-- VULNERABILITY: Stored XSS (using | safe disables HTML escaping) -->
+                    <td><strong>{{ log[2] | safe }}</strong></td>
+                    <td style="color: var(--text-muted); font-size: 13px;">{{ log[3] | safe }}</td>
                     <td style="font-size: 12px; color: var(--text-muted);">{{ log[4] }}</td>
                 </tr>
                 {% endfor %}
